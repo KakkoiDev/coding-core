@@ -1,0 +1,1 @@
+export default [{ignores:['vendor/**','dist/**']},{files:['**/*.mjs'],languageOptions:{ecmaVersion:2022,sourceType:'module',globals:{Buffer:'readonly',process:'readonly',console:'readonly',setTimeout:'readonly',structuredClone:'readonly'}},rules:{'no-unused-vars':['error',{argsIgnorePattern:'^_'}],'no-undef':'error','eqeqeq':'error'}}];
