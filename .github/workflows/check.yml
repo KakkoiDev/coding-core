@@ -17,4 +17,6 @@ jobs:
       - run: npm run format:check
       - run: ruff check python tests tools
       - run: ruff format --check python tests tools
+      - name: E2E scenarios and flaky lint (test-core protocol)
+        run: python3 -B tools/e2e.py
       - run: python3 -B tools/check.py

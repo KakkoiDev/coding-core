@@ -5,7 +5,7 @@ requires-python = ">=3.11"
 [tool.ruff]
 target-version = "py311"
 line-length = 100
-exclude = ["vendor", "dist"]
+exclude = ["vendor", "dist", "tools/test-core"]
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F"]
 ignore = ["E402"]
