@@ -15,8 +15,9 @@ Start with [AGENTS.md](AGENTS.md), [recipes](RECIPES.md),
 python3 -B tools/check.py
 ```
 
-This verifies local dependency hashes, documentation links, JS/Python behavior
-and builds `dist/coding-core-0.1.0.zip`. It does not install dev tools. Run the
+This verifies local dependency hashes, documentation links, JS/Python behavior,
+the end-to-end test of every [scenario](SCENARIOS.md) (`tools/e2e.py`, with the
+vendored [test-core tools](tools/test-core/README.md)) and builds `dist/coding-core-0.1.0.zip`. It does not install dev tools. Run the
 separate lint/format gate before publishing changes. The zip is a deterministic
 source kit, not a transpiled application.
 
