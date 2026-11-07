@@ -23,7 +23,8 @@ source kit, not a transpiled application.
 
 Examples cover data pipelines, grouping/indexing, validation, configuration,
 pagination, integer cents, state transitions, retries, atomic JSON and injected
-time. JS also has bounded concurrency. HTTP, project boundaries and Python async
+time. JS also has bounded concurrency, a guarded task transition table, SQLite
+transactions and migrations (node:sqlite, Node 22.13+) and idempotent operation receipts. HTTP, project boundaries and Python async
 concurrency are documented guidance rather than a shipped service implementation.
 
 Do not copy this whole repository into every prompt. Route to one recipe, adapt

@@ -7,7 +7,9 @@ test, named exactly after its title, in both languages:
 runs a fresh consumer program in a scratch folder that imports the public module (`js/recipes.mjs`,
 `js/effects.mjs`, `coding_core.recipes`, `coding_core.effects`) and checks what that program prints or writes.
 
-The JavaScript-only scenario is in [recipes/concurrency.md](recipes/concurrency.md); the scenarios of the check and
+The JavaScript-only scenarios are in [recipes/concurrency.md](recipes/concurrency.md),
+[recipes/task-states.md](recipes/task-states.md), [recipes/sqlite.md](recipes/sqlite.md) and
+[recipes/receipts.md](recipes/receipts.md); the scenarios of the check and
 build commands are in [docs/pipeline.md](docs/pipeline.md). `python3 -B tools/e2e.py` runs every e2e test and proves
 each scenario's test ran and passed (vendored [test-core tools](tools/test-core/README.md)).
 

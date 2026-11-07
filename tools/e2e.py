@@ -4,7 +4,7 @@
 
 1. JavaScript e2e tests (node --test, JUnit report) and Python e2e tests (unittest, JUnit report), offline.
 2. tools/test-core/scenarios.py check: every scenario in SCENARIOS.md has a test of the same name in both languages
-   that ran and passed; recipes/concurrency.md in JavaScript; docs/pipeline.md (the commands) in Python.
+   that ran and passed; the JavaScript-only recipes (JS_ONLY) in JavaScript; docs/pipeline.md (the commands) in Python.
 3. tools/test-core/flaky_lint.py over tests/: no fixed sleeps, timers used as waits or focused tests.
 Reports go to a temporary folder, so the checkout (and the source kit) stay unchanged.
 """
@@ -22,6 +22,7 @@ TOOLS = ROOT / "tools/test-core"
 JS_TESTS = "tests/e2e/scenarios.test.mjs"
 PY_SCENARIOS = "tests/e2e/test_scenarios.py"
 PY_COMMANDS = "tests/e2e/test_commands.py"
+JS_ONLY = [f"recipes/{name}.md" for name in ("concurrency", "task-states", "sqlite", "receipts")]
 
 
 class JUnitResult(unittest.TextTestResult):
@@ -104,7 +105,7 @@ def main():
         results += [
             scenarios_check("SCENARIOS.md", [JS_TESTS], js_report),
             scenarios_check("SCENARIOS.md", [PY_SCENARIOS], py_report),
-            scenarios_check("recipes/concurrency.md", [JS_TESTS], js_report),
+            *(scenarios_check(doc, [JS_TESTS], js_report) for doc in JS_ONLY),
             scenarios_check("docs/pipeline.md", [PY_COMMANDS], py_report),
         ]
     print("\nFlaky patterns in tests/:", flush=True)
