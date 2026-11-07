@@ -51,7 +51,14 @@ licenses, excluding caches and dev installations. `tools/check-syntax.mjs` check
 JS syntax separately if needed; plain JS/Python requires no runtime compilation.
 Do not call a syntax-only pass a functional test.
 
-## Scenarios of the check and build commands
+## Adopting modules in another project
+
+`python3 tools/adopt.py TARGET_REPO` copies the self-contained JavaScript modules (task states, SQLite,
+receipts) into `TARGET_REPO/coding-core/` with a `MANIFEST.json` of the commit and each file's sha256, the way
+test-core is adopted. The project checks its copy with `python3 coding-core/adopt.py --verify coding-core`; change
+coding-core and rerun with `--update` rather than editing the copy.
+
+## Scenarios of the check, build and adopt commands
 
 Each is one end-to-end test in [tests/e2e/test_commands.py](../tests/e2e/test_commands.py), named after its title.
 The test copies the repository to a scratch folder and runs the command there, as a contributor would.
@@ -72,3 +79,15 @@ Then it fails and names the drifted file
 Given a copy of the repository with a Markdown link to a missing file
 When I run the offline check
 Then it fails and names the file and the missing target
+
+### Scenario: Adopt the self-contained modules into another repository
+Given a clean copy of the repository and an empty project folder
+When I run tools/adopt.py on the project
+Then the project's coding-core folder holds the three modules, the licence, adopt.py and a manifest of their hashes
+And verifying the adopted copy passes
+And running it again changes nothing
+
+### Scenario: An adopted module edited in place fails the verify
+Given a project with coding-core adopted
+When one adopted module is edited in place and I verify the copy
+Then the verify fails and names the edited file
