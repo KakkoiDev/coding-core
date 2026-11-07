@@ -16,6 +16,14 @@ vendor/lodash/fp.js; Python package setup exposes vendor/toolz. Read
 [dependencies](docs/dependencies.md) before changing imports. Keep licenses when
 copying. Consumer projects can use their existing pinned dependency instead.
 
+Testing protocol (shared with Pi Workbench and test-core): every runnable recipe
+and command has Given/When/Then scenarios (`### Scenario: <title>`) in
+[SCENARIOS.md](SCENARIOS.md) or its doc, and one end-to-end test per scenario named
+exactly after its title. Write the scenario first, then the failing test, then the
+code; removing a feature removes its scenario and test in the same commit. Tests
+stay offline and wait for state, never for time. `python3 -B tools/e2e.py` proves
+each scenario's test ran and passed.
+
 Check with `python3 -B tools/check.py`. Contributor lint/format instructions are
 in [the pipeline](docs/pipeline.md). Fix behavior and rerun relevant checks; do not
 mass-refactor unrelated host files. Report actual evidence and limitations.

@@ -90,7 +90,7 @@ test("bounded concurrency preserves order", async () => {
   const result = await mapConcurrent([1, 2, 3, 4], 2, async (value) => {
     active++;
     peak = Math.max(peak, active);
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    await Promise.resolve(); // let the other worker start
     active--;
     return value * 2;
   });

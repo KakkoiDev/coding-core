@@ -46,8 +46,9 @@ def check():
         cwd=ROOT,
         check=True,
     )
+    subprocess.run([sys.executable, "-B", "tools/e2e.py"], cwd=ROOT, check=True)
     subprocess.run([sys.executable, "-B", "tools/build.py"], cwd=ROOT, check=True)
-    print("Vendor, documentation, JS/Python recipes and source build passed.")
+    print("Vendor, documentation, JS/Python recipes, e2e scenarios and source build passed.")
 
 
 if __name__ == "__main__":
