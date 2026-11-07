@@ -109,3 +109,91 @@ test("atomic JSON replaces a complete file", async () => {
     await rm(folder, { recursive: true, force: true });
   }
 });
+test("transition table guards, refuses and never mutates", async () => {
+  const states = await import("../js/task-states.mjs");
+  const table = states.taskTransitions;
+  assert.equal(Object.isFrozen(table.pending.start), true);
+  const context = { evidence: [{ kind: "receipt", ref: "op_1" }] };
+  const before = structuredClone(context);
+  assert.equal(
+    states.transition(table, "in_progress", "verify", context).to,
+    "done",
+  );
+  assert.deepEqual(context, before);
+  assert.match(
+    states.transition(table, "done", "verify", context).error,
+    /allowed: reopen/,
+  );
+  assert.match(
+    states.transition(table, "nowhere", "start").error,
+    /Unknown state/,
+  );
+  assert.match(
+    states.transition(table, "pending", "block", { reason: " " }).error,
+    /reason is required/,
+  );
+  assert.deepEqual(
+    states.allowedEvents(table, "pending", { blockedBy: ["a"] }),
+    ["cancel"],
+  );
+  assert.throws(
+    () => states.defineTransitions({ a: { go: { to: "a", guard: "yes" } } }),
+    /not a function/,
+  );
+  const final = states.defineTransitions({
+    open: { close: { to: "closed" } },
+    closed: {},
+  });
+  assert.equal(
+    states.transition(final, "closed", "open").error,
+    "Cannot open from closed (final state)",
+  );
+});
+test("sqlite transactions nest with savepoints and migrations stop at a failure", async () => {
+  const { openDatabase, transaction, migrate } =
+    await import("../js/sqlite.mjs");
+  const db = openDatabase(":memory:");
+  db.exec("CREATE TABLE t (v TEXT)");
+  transaction(db, () => {
+    db.prepare("INSERT INTO t VALUES ('outer')").run();
+    assert.throws(() =>
+      transaction(db, () => {
+        db.prepare("INSERT INTO t VALUES ('inner')").run();
+        throw new Error("inner");
+      }),
+    );
+  });
+  assert.deepEqual(
+    db
+      .prepare("SELECT v FROM t")
+      .all()
+      .map((r) => r.v),
+    ["outer"],
+  );
+  const fresh = openDatabase(":memory:");
+  assert.throws(() =>
+    migrate(fresh, ["CREATE TABLE a (x)", "CREATE TABLE broken ("]),
+  );
+  assert.equal(fresh.prepare("PRAGMA user_version").get().user_version, 1);
+  assert.throws(
+    () => openDatabase(":memory:", { busyTimeoutMs: -1 }),
+    RangeError,
+  );
+});
+test("receipts keep the first settlement and refuse a pending once", async () => {
+  const { openDatabase } = await import("../js/sqlite.mjs");
+  const { createReceipts, operationKey } = await import("../js/receipts.mjs");
+  const db = openDatabase(":memory:");
+  const receipts = createReceipts(db, { now: () => "t" });
+  assert.notEqual(operationKey("a", 1), operationKey("a", "1"));
+  assert.throws(() => operationKey(), TypeError);
+  receipts.reserve("k", "external");
+  assert.throws(
+    () => receipts.once("k", "external", () => 1),
+    /pending: reconcile/,
+  );
+  receipts.settle("k", { n: 1 });
+  assert.deepEqual(receipts.settle("k", { n: 2 }).result, { n: 1 });
+  assert.equal(receipts.settle("k", { n: 2 }).replayed, true);
+  assert.throws(() => receipts.settle("missing", {}), /No reservation/);
+});

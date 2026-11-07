@@ -13,6 +13,9 @@
 | Replace one JSON file safely | [atomic-json](recipes/atomic-json.md) | Runnable JS + Python |
 | Make time-dependent code testable | [injected-time](recipes/injected-time.md) | Runnable JS + Python |
 | Bounded asynchronous work | [concurrency](recipes/concurrency.md) | Runnable JS; Python guidance |
+| Guard task state changes with a transition table | [task-states](recipes/task-states.md) | Runnable JS; Python guidance |
+| SQLite transactions and migrations (node:sqlite) | [sqlite](recipes/sqlite.md) | Runnable JS (Node 22.13+); Python guidance |
+| Do a side effect once per operation key | [receipts](recipes/receipts.md) | Runnable JS (Node 22.13+); Python guidance |
 | Domain/effect boundaries and resource cleanup | [boundaries](recipes/project-boundaries.md) | Guidance |
 | HTTP client and error handling | [HTTP](recipes/http-and-errors.md) | Guidance |
 | Meaningful behavioral tests | [testing](recipes/testing.md) | Runnable test examples |

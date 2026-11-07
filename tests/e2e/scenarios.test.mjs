@@ -1,4 +1,4 @@
-// End-to-end tests for SCENARIOS.md and recipes/concurrency.md: one test per scenario, named after its title.
+// End-to-end tests for SCENARIOS.md and the JavaScript-only recipes (concurrency, task-states, sqlite, receipts): one test per scenario, named after its title.
 // Each test writes a small consumer program into a scratch folder, runs it with Node like a host project would,
 // and checks what it prints (and, for atomic JSON, what it leaves on disk). Given = Arrange, When = Act,
 // Then = Assert.
@@ -19,6 +19,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const recipesUrl = pathToFileURL(join(root, "js/recipes.mjs")).href;
 const effectsUrl = pathToFileURL(join(root, "js/effects.mjs")).href;
+const statesUrl = pathToFileURL(join(root, "js/task-states.mjs")).href;
+const sqliteUrl = pathToFileURL(join(root, "js/sqlite.mjs")).href;
+const receiptsUrl = pathToFileURL(join(root, "js/receipts.mjs")).href;
 
 /** Run `body` as a consumer program in a fresh folder; it prints one JSON value with `show(value)`. */
 function consumer(body, { keep = false } = {}) {
@@ -26,6 +29,9 @@ function consumer(body, { keep = false } = {}) {
   const program = [
     `import * as recipes from ${JSON.stringify(recipesUrl)};`,
     `import * as effects from ${JSON.stringify(effectsUrl)};`,
+    `import * as states from ${JSON.stringify(statesUrl)};`,
+    `import * as sqlite from ${JSON.stringify(sqliteUrl)};`,
+    `import * as receipts from ${JSON.stringify(receiptsUrl)};`,
     "const show = (value) => process.stdout.write(JSON.stringify(value));",
     "const error = (run) => { try { run(); return null; } catch (e) { return e.message; } };",
     body,
@@ -325,4 +331,219 @@ test("Run work with bounded concurrency in input order", () => {
   assert.deepEqual(shown.results, [40, 10, 30, 20]);
   // And a limit of 0 is refused
   assert.equal(shown.refused, "concurrency must be 1..16");
+});
+
+test("Move a todo from pending to done with evidence", () => {
+  // Given a pending todo and the task transition table
+  // When I start it and then verify it with a test as evidence
+  const { shown } = consumer(`
+    const table = states.taskTransitions;
+    const started = states.transition(table, "pending", "start", { blockedBy: [] });
+    const verified = states.transition(table, started.to, "verify", {
+      evidence: [{ kind: "test", ref: "tests/plan.test.mjs#two-steps" }],
+    });
+    const reopened = states.transition(table, verified.to, "reopen");
+    show({ started, verified, reopened, offered: states.allowedEvents(table, "pending", { reason: "x" }) });
+  `);
+  // Then it is done
+  assert.deepEqual(shown.started, {
+    ok: true,
+    from: "pending",
+    to: "in_progress",
+    event: "start",
+  });
+  assert.equal(shown.verified.to, "done");
+  // And reopening it makes it pending again
+  assert.equal(shown.reopened.to, "pending");
+  // And the next events offered for a pending todo are start, block and cancel
+  assert.deepEqual(shown.offered, ["start", "block", "cancel"]);
+});
+
+test("An illegal or unguarded change is refused with a reason", () => {
+  // Given the task transition table
+  // When I verify a pending todo, verify an in-progress todo without evidence, or start a todo whose dependency is open
+  const { shown } = consumer(`
+    const table = states.taskTransitions;
+    show([
+      states.transition(table, "pending", "verify", { evidence: [{ kind: "test", ref: "t" }] }),
+      states.transition(table, "in_progress", "verify", { evidence: [] }),
+      states.transition(table, "in_progress", "verify", { evidence: [{ kind: "vibes", ref: "trust me" }] }),
+      states.transition(table, "pending", "start", { blockedBy: ["Write the outline"] }),
+    ]);
+  `);
+  // Then each change is refused
+  assert.deepEqual(
+    shown.map((result) => result.ok),
+    [false, false, false, false],
+  );
+  // And the errors list the allowed events, ask for evidence, and name the open dependency
+  assert.equal(
+    shown[0].error,
+    "Cannot verify from pending (allowed: start, block, cancel)",
+  );
+  assert.match(shown[1].error, /evidence is required/);
+  assert.match(shown[2].error, /evidence must be/);
+  assert.equal(
+    shown[3].error,
+    "Cannot start from pending: waits for Write the outline",
+  );
+});
+
+test("A table that leads to an unknown state is refused", () => {
+  // Given a transition table where an event leads to a state that is not in the table
+  // When I define it
+  const { shown } = consumer(`
+    show(error(() => states.defineTransitions({ open: { close: { to: "closed" } } })));
+  `);
+  // Then I get an error that names the state and event
+  assert.equal(shown, "open --close--> leads to an unknown state");
+});
+
+test("Migrate a database to the latest schema once", () => {
+  // Given a new database file and two migrations
+  // When I migrate it, and then migrate it again
+  const { shown } = consumer(`
+    const migrations = [
+      "CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL)",
+      (db) => db.exec("ALTER TABLE notes ADD COLUMN done INTEGER NOT NULL DEFAULT 0"),
+    ];
+    const db = sqlite.openDatabase("app.db");
+    const first = sqlite.migrate(db, migrations);
+    const second = sqlite.migrate(db, migrations);
+    const columns = db.prepare("SELECT name FROM pragma_table_info('notes')").all().map((c) => c.name);
+    const older = error(() => sqlite.migrate(db, migrations.slice(0, 1)));
+    db.close();
+    show({ first, second, columns, older });
+  `);
+  // Then the first run goes from version 0 to 2 and the second changes nothing
+  assert.deepEqual(shown.first, { from: 0, to: 2 });
+  assert.deepEqual(shown.second, { from: 2, to: 2 });
+  assert.deepEqual(shown.columns, ["id", "body", "done"]);
+  // And code that knows only one migration refuses the newer database
+  assert.equal(
+    shown.older,
+    "Database schema 2 is newer than this code (knows 1)",
+  );
+});
+
+test("A failed transaction leaves nothing behind", () => {
+  // Given a database with a notes table
+  // When a transaction inserts a note and then fails, and another body returns a promise
+  const { shown } = consumer(`
+    const db = sqlite.openDatabase(":memory:");
+    db.exec("CREATE TABLE notes (body TEXT)");
+    const failed = error(() => sqlite.transaction(db, () => {
+      db.prepare("INSERT INTO notes VALUES (?)").run("half-done");
+      throw new Error("disk full");
+    }));
+    const asynchronous = error(() => sqlite.transaction(db, async () => {
+      db.prepare("INSERT INTO notes VALUES (?)").run("too early");
+    }));
+    show({ failed, asynchronous, count: db.prepare("SELECT count(*) AS n FROM notes").get().n });
+  `);
+  // Then the table is still empty
+  assert.equal(shown.failed, "disk full");
+  assert.equal(shown.count, 0);
+  // And the promise body is refused as not synchronous
+  assert.equal(
+    shown.asynchronous,
+    "A transaction body must be synchronous; await outside it",
+  );
+});
+
+test("Two processes increment a counter without losing an update", () => {
+  // Given a database file with a counter at 0
+  // When two processes each increment it 200 times in transactions at the same time
+  const writer = [
+    `import * as sqlite from ${JSON.stringify(sqliteUrl)};`,
+    "const db = sqlite.openDatabase('counter.db', { busyTimeoutMs: 20000 });",
+    "for (let i = 0; i < 200; i++) sqlite.transaction(db, () => {",
+    "  const { n } = db.prepare('SELECT n FROM counter').get();",
+    "  db.prepare('UPDATE counter SET n = ?').run(n + 1);",
+    "});",
+  ].join("\n");
+  const { shown } = consumer(`
+    const { spawn } = await import("node:child_process");
+    const { writeFileSync } = await import("node:fs");
+    const db = sqlite.openDatabase("counter.db");
+    db.exec("CREATE TABLE counter (n INTEGER NOT NULL); INSERT INTO counter VALUES (0)");
+    writeFileSync("writer.mjs", ${JSON.stringify(writer)});
+    const run = () => new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, ["writer.mjs"], { stdio: "inherit" });
+      child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error("writer exited " + code))));
+    });
+    await Promise.all([run(), run()]);
+    show(db.prepare("SELECT n FROM counter").get().n);
+  `);
+  // Then the counter is 400
+  assert.equal(shown, 400);
+});
+
+test("An operation delivered twice acts once", () => {
+  // Given a database with receipts and an operation that adds a row
+  // When the same operation key is delivered twice
+  const { shown } = consumer(`
+    const db = sqlite.openDatabase(":memory:");
+    db.exec("CREATE TABLE items (title TEXT)");
+    const store = receipts.createReceipts(db, { now: () => "2026-11-08T00:00:00Z" });
+    const key = receipts.operationKey("plan", "p1", "add", "Write the outline");
+    const add = () => store.once(key, "add-item", () => {
+      db.prepare("INSERT INTO items VALUES (?)").run("Write the outline");
+      return { position: db.prepare("SELECT count(*) AS n FROM items").get().n };
+    });
+    const first = add();
+    const second = add();
+    show({ first, second, rows: db.prepare("SELECT count(*) AS n FROM items").get().n,
+      sameKey: key === receipts.operationKey("plan", "p1", "add", "Write the outline") });
+  `);
+  // Then the row is added once
+  assert.equal(shown.rows, 1);
+  assert.equal(shown.sameKey, true);
+  // And the second delivery is marked replayed and returns the first result
+  assert.deepEqual(shown.first, { result: { position: 1 }, replayed: false });
+  assert.deepEqual(shown.second, { result: { position: 1 }, replayed: true });
+});
+
+test("A failed operation leaves no receipt and can be retried", () => {
+  // Given an operation that fails the first time
+  // When it is delivered, fails, and is delivered again
+  const { shown } = consumer(`
+    const db = sqlite.openDatabase(":memory:");
+    const store = receipts.createReceipts(db);
+    let calls = 0;
+    const deliver = () => store.once("op_send", "send", () => {
+      calls++;
+      if (calls === 1) throw new Error("transient");
+      return { sent: true };
+    });
+    const failed = error(deliver);
+    const retried = deliver();
+    show({ failed, retried, calls, receipts: db.prepare("SELECT count(*) AS n FROM receipts").get().n });
+  `);
+  // Then the second delivery runs and succeeds
+  assert.equal(shown.failed, "transient");
+  assert.deepEqual(shown.retried, { result: { sent: true }, replayed: false });
+  assert.equal(shown.calls, 2);
+  // And only one receipt exists
+  assert.equal(shown.receipts, 1);
+});
+
+test("An unsettled external effect is reported for reconciliation", () => {
+  // Given an external effect reserved under a key but not settled
+  // When the same key is reserved again
+  const { shown } = consumer(`
+    const db = sqlite.openDatabase(":memory:");
+    const store = receipts.createReceipts(db, { now: () => "2026-11-08T00:00:00Z" });
+    const first = store.reserve("op_generate", "generate");
+    const again = store.reserve("op_generate", "generate");
+    const settled = store.settle("op_generate", { text: "Outline ready" });
+    const after = store.reserve("op_generate", "generate");
+    show({ first: first.state, again: again.state, settled: settled.replayed, after: [after.state, after.result] });
+  `);
+  // Then the reservation is reported as pending instead of new
+  assert.equal(shown.first, "new");
+  assert.equal(shown.again, "pending");
+  // And after settling, reserving again returns the settled result
+  assert.equal(shown.settled, false);
+  assert.deepEqual(shown.after, ["done", { text: "Outline ready" }]);
 });
